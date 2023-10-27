@@ -1,0 +1,25 @@
+[package]
+name = "lol_skin_randomizer"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fltk = "1.4.15"
+fltk-evented = "0.4.1"
+fltk-theme = "0.7.2"
+serde = { version = "1.0.189", features = ["derive"] }
+regex = "1.10.2"
+reqwest = { version = "0.11.22", features = ["blocking"] }
+base64 = "0.21.5"
+serde_json = "1.0.107"
+rand = "0.8.5"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"
+
+[[bin]]
+name = "Skin-Randomizer"
+path = "src/main.rs"
