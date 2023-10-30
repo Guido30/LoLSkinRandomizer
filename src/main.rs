@@ -14,7 +14,9 @@ use fltk::{
     window::Window,
 };
 use fltk_evented::Listener;
-use fltk_theme::{color_themes, ColorTheme, SchemeType, WidgetScheme};
+use fltk_theme::{
+    color_themes, widget_themes, ColorTheme, SchemeType, WidgetScheme,
+};
 use rand::{seq::SliceRandom, thread_rng};
 
 use lcu::GameClient;
@@ -73,6 +75,7 @@ fn main() {
     btn_skin.set_color(Color::Dark2);
     btn_skin.set_image(Some(icon_skin));
     btn_skin.set_align(Align::ImageNextToText);
+    btn_skin.set_frame(widget_themes::OS_BUTTON_UP_BOX);
 
     let mut btn_chroma: Listener<_> =
         Button::default().with_label("  Chroma").into();
@@ -81,6 +84,7 @@ fn main() {
     btn_chroma.set_color(Color::Dark2);
     btn_chroma.set_image(Some(icon_chroma));
     btn_chroma.set_align(Align::ImageNextToText);
+    btn_chroma.set_frame(widget_themes::OS_BUTTON_UP_BOX);
 
     group_btns.end();
 
