@@ -1,5 +1,8 @@
 # LoL Skin Randomizer
 
+> [!IMPORTANT]
+> Compatible with Vanguard
+
 Simple application that allows you to randomly select a champion skin and skin chroma when playing League of Legends. If you own a lot of skins and always wonder which one to use then this tool is for you.
 
 <p align="center">
