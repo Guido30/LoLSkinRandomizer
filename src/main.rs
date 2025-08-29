@@ -4,9 +4,9 @@
 use fltk::{
     app,
     button::Button,
+    enums::Align,
     enums::Color,
     enums::Font,
-    enums::{Align, Event},
     frame::Frame,
     group::{Column, Flex},
     image::PngImage,
@@ -17,12 +17,20 @@ use fltk_evented::Listener;
 use fltk_theme::{
     color_themes, widget_themes, ColorTheme, SchemeType, WidgetScheme,
 };
-use rand::{seq::SliceRandom, thread_rng};
 
 use lcu::GameClient;
 
+use std::sync::{Arc, Mutex};
+use std::thread;
+
 mod lcu;
 mod models;
+
+enum ChannelMsg {
+    Text(String),
+    ChromaColor(u32),
+    ClientStatus(bool),
+}
 
 fn main() {
     let icon_app_bytes = include_bytes!("assets/icon.png");
@@ -39,7 +47,9 @@ fn main() {
     let icon_status_green =
         PngImage::from_data(icon_status_green_bytes).unwrap();
     let icon_status_red = PngImage::from_data(icon_status_red_bytes).unwrap();
-    let mut client = GameClient::new();
+    let (s, r) = app::channel::<ChannelMsg>();
+    let client = Arc::new(Mutex::new(GameClient::new()));
+    let (c1, c2, c3) = (client.clone(), client.clone(), client.clone());
 
     let app = app::App::default();
     let theme = ColorTheme::new(color_themes::BLACK_THEME);
@@ -76,6 +86,22 @@ fn main() {
     btn_skin.set_image(Some(icon_skin));
     btn_skin.set_align(Align::ImageNextToText);
     btn_skin.set_frame(widget_themes::OS_BUTTON_UP_BOX);
+    btn_skin.set_callback(move |_| {
+        let c1 = c1.clone();
+        thread::spawn(move || match c1.lock() {
+            Ok(mut g) => match g.set_skin() {
+                Ok(skin_name) => {
+                    s.send(ChannelMsg::Text(skin_name));
+                }
+                Err(e) => {
+                    s.send(ChannelMsg::Text(e));
+                }
+            },
+            Err(e) => {
+                dbg!(e);
+            }
+        });
+    });
 
     let mut btn_chroma: Listener<_> =
         Button::default().with_label("  Chroma").into();
@@ -85,6 +111,23 @@ fn main() {
     btn_chroma.set_image(Some(icon_chroma));
     btn_chroma.set_align(Align::ImageNextToText);
     btn_chroma.set_frame(widget_themes::OS_BUTTON_UP_BOX);
+    btn_chroma.set_callback(move |_| {
+        let c2 = c2.clone();
+        thread::spawn(move || match c2.lock() {
+            Ok(g) => match g.set_chroma() {
+                Ok(chroma) => {
+                    s.send(ChannelMsg::Text(chroma.0));
+                    s.send(ChannelMsg::ChromaColor(chroma.1));
+                }
+                Err(e) => {
+                    s.send(ChannelMsg::Text(e));
+                }
+            },
+            Err(e) => {
+                dbg!(e);
+            }
+        });
+    });
 
     group_btns.end();
 
@@ -94,147 +137,53 @@ fn main() {
     statusbar.set_label_size(12);
     statusbar.set_image(Some(icon_status_grey));
 
-    column.fixed(&mut text, 40);
-    column.fixed(&mut group_btns, 40);
-    column.fixed(&mut statusbar, 15);
+    column.fixed(&text, 40);
+    column.fixed(&group_btns, 40);
+    column.fixed(&statusbar, 15);
     column.end();
 
     win.end();
     win.show();
 
+    let check_client_status = move |handle| {
+        let c3 = c3.clone();
+        thread::spawn(move || {
+            if let Ok(mut c3) = c3.lock() {
+                match c3.status() {
+                    true => s.send(ChannelMsg::ClientStatus(true)),
+                    false => match c3.retry() {
+                        Ok(_) => s.send(ChannelMsg::ClientStatus(true)),
+                        Err(e) => {
+                            dbg!(e);
+                            s.send(ChannelMsg::ClientStatus(false))
+                        }
+                    },
+                }
+            }
+        });
+        app::repeat_timeout3(1.0, handle);
+    };
+    app::add_timeout3(1.0, check_client_status);
+
     while app.wait() {
-        match wrapper.event() {
-            Event::Enter | Event::Leave => {
-                if !client.status() {
-                    client.retry();
+        if let Some(v) = r.recv() {
+            match v {
+                ChannelMsg::Text(t) => {
+                    text.set_label_color(Color::ForeGround);
+                    text.set_label(&t);
                 }
-                if client.status() {
-                    statusbar.set_image(Some(icon_status_green.clone()));
-                    win.redraw();
-                } else {
-                    statusbar.set_image(Some(icon_status_red.clone()));
-                    win.redraw();
+                ChannelMsg::ChromaColor(c) => {
+                    text.set_label_color(Color::from_hex(c));
+                }
+                ChannelMsg::ClientStatus(status) => {
+                    if status {
+                        statusbar.set_image(Some(icon_status_green.clone()));
+                    } else {
+                        statusbar.set_image(Some(icon_status_red.clone()));
+                    }
                 }
             }
-            _ => (),
-        }
-
-        if btn_skin.triggered() {
-            text.set_label_color(Color::ForeGround);
-            if client.status() {
-                let summoner_id = client
-                    .call_summoner_v1_current_summoner_account_and_summoner_ids(
-                    );
-                let skin_ids = client
-                    .call_champ_select_v1_pickable_skin_ids()
-                    .map_err(|_| text.set_label("Not in champion select!"));
-                let current_champ =
-                    client.call_champ_select_v1_current_champion();
-                let mut rng = thread_rng();
-
-                #[allow(unused_must_use)]
-                {
-                    summoner_id.and_then(|summoner_id| {
-                        skin_ids.and_then(|skin_ids| {
-                            current_champ.and_then(|current_champ| {
-                                client.call_champions_v1_inventories_summonerid_champions_championid_skins(
-                                    summoner_id.summoner_id,
-                                    current_champ as i64,
-                                ).map_err(|_| {text.set_label("Champion not picked yet!")}).and_then(|champ_skin_ids| {
-                                    let champ_skin_ids: Vec<(i32, String)> = champ_skin_ids.iter()
-                                        .filter(|skin| skin_ids.contains(&skin.id))
-                                        .map(|skin| (skin.id, skin.name.clone()))
-                                        .collect();
-                                    let random_skin = champ_skin_ids.choose(&mut rng);
-
-                                    if let Some(skin) = random_skin {
-                                        client.call_champ_select_v1_session_my_selection(skin.0).and_then(|_| {
-                                            text.set_label(&skin.1);
-                                            Ok(())
-                                        });
-                                    };
-                                    Ok(())
-                                });
-                                Ok(())
-                            });
-                            Ok(())
-                        });
-                        Ok(())
-                    });
-                }
-            } else {
-                text.set_label("LeagueClient not found!");
-            }
-        }
-
-        if btn_chroma.triggered() {
-            text.set_label_color(Color::ForeGround);
-            if client.status() {
-                let summoner_id = client
-                    .call_summoner_v1_current_summoner_account_and_summoner_ids(
-                    );
-                let champ_select = client
-                    .call_champ_select_v1_session()
-                    .map_err(|_| text.set_label("Not in champion select!"));
-                let mut rng = thread_rng();
-
-                #[allow(unused_must_use)]
-                {
-                    summoner_id.and_then(|summoner_id| {
-                        champ_select.and_then(|champ_select| {
-                            let summoner =
-                                champ_select.my_team.iter().find(|summoner| {
-                                    summoner.summoner_id == summoner_id.summoner_id
-                                });
-                            let selected_skin_id = match summoner {
-                                Some(s) => s.selected_skin_id,
-                                None => 0,
-                            };
-                            let champion_id = match summoner {
-                                Some(s) => s.champion_id,
-                                None => 0,
-                            };
-                            if champion_id != 0 {
-                                client.call_champions_v1_inventories_summonerid_champions_championid_skins(summoner_id.summoner_id, champion_id as i64).and_then(|skin_collection| {
-                                    let mut current_chromas = Vec::new();
-                                    let mut random_chroma = None;
-                                    let current_skin = skin_collection.iter().find(|skin| skin.id == selected_skin_id);
-                                    for chroma in skin_collection.clone().into_iter().map(|skin| skin.chromas) {
-                                        if chroma.iter().any(|chr| chr.id == selected_skin_id) {
-                                            current_chromas = chroma.iter().filter(|chr| chr.ownership.owned).map(|chr| (chr.id, chr.colors[0].clone())).collect();
-                                        }
-                                    }
-                                    if current_chromas.is_empty() {
-                                        if let Some(current_skin) = current_skin {
-                                            current_chromas = current_skin.chromas.iter().filter(|chr| chr.ownership.owned).map(|chr| (chr.id, chr.colors[0].clone())).collect();
-                                            random_chroma = current_chromas.choose(&mut rng);
-                                        }
-                                    } else {
-                                        random_chroma = current_chromas.choose(&mut rng);
-                                    }
-                                    if let Some(chroma) = random_chroma {
-                                        client.call_champ_select_v1_session_my_selection(chroma.0).and_then(|_| {
-                                            text.set_label("Randomized Chroma");
-                                            if let Ok(color) = u32::from_str_radix(&chroma.1[1..], 16) {
-                                                text.set_label_color(Color::from_hex(color));
-                                            }
-                                            win.redraw();
-                                            Ok(())
-                                        });
-                                    };
-                                    Ok(())
-                                });
-                            } else {
-                                text.set_label("Champion not picked yet!");
-                            }
-                            Ok(())
-                        });
-                        Ok(())
-                    });
-                }
-            } else {
-                text.set_label("LeagueClient not found!");
-            }
+            win.redraw();
         }
     }
 }
