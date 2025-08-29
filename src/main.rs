@@ -13,9 +13,11 @@ use fltk::{
     prelude::*,
     window::Window,
 };
-use fltk_evented::Listener;
-use fltk_theme::{
-    color_themes, widget_themes, ColorTheme, SchemeType, WidgetScheme,
+use fltk_theme::{color_themes, widget_themes, ColorTheme};
+use std::ffi::c_void;
+use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE,
 };
 
 use lcu::GameClient;
@@ -47,6 +49,8 @@ fn main() {
     let icon_status_green =
         PngImage::from_data(icon_status_green_bytes).unwrap();
     let icon_status_red = PngImage::from_data(icon_status_red_bytes).unwrap();
+
+    // Inizialize lcu client and channel for updating the gui
     let (s, r) = app::channel::<ChannelMsg>();
     let client = Arc::new(Mutex::new(GameClient::new()));
     let (c1, c2, c3) = (client.clone(), client.clone(), client.clone());
@@ -54,16 +58,12 @@ fn main() {
     let app = app::App::default();
     let theme = ColorTheme::new(color_themes::BLACK_THEME);
     theme.apply();
-    let widget_scheme = WidgetScheme::new(SchemeType::Clean);
-    widget_scheme.apply();
 
     let mut win = Window::default()
         .with_size(260, 125)
         .with_label("Skin Randomizer");
 
     win.set_icon(Some(icon_app));
-
-    let wrapper: Listener<_> = Frame::default().with_size(260, 125).into();
 
     let mut column = Column::default_fill();
     column.set_spacing(5);
@@ -78,8 +78,7 @@ fn main() {
     let mut group_btns = Flex::default_fill();
     group_btns.set_margins(0, 0, 0, 5);
 
-    let mut btn_skin: Listener<_> =
-        Button::default().with_label("  Skin").into();
+    let mut btn_skin = Button::default().with_label("  Skin");
     btn_skin.set_label_font(Font::Helvetica);
     btn_skin.set_label_size(16);
     btn_skin.set_color(Color::Dark2);
@@ -103,8 +102,7 @@ fn main() {
         });
     });
 
-    let mut btn_chroma: Listener<_> =
-        Button::default().with_label("  Chroma").into();
+    let mut btn_chroma = Button::default().with_label("  Chroma");
     btn_chroma.set_label_font(Font::Helvetica);
     btn_chroma.set_label_size(16);
     btn_chroma.set_color(Color::Dark2);
@@ -145,6 +143,23 @@ fn main() {
     win.end();
     win.show();
 
+    // Using the win32 api to make the window title bar dark, since fltk doesnt support it
+    // Get the window handle (HWND)
+    let hwnd = win.raw_handle() as HWND;
+    if hwnd != 0 {
+        let use_dark_mode: i32 = 1;
+        unsafe {
+            // Set the window attribute to use dark mode
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+                &use_dark_mode as *const i32 as *const c_void,
+                std::mem::size_of::<i32>() as u32,
+            );
+        }
+    }
+
+    // Background thread to continuously check if the league client is running
     let check_client_status = move |handle| {
         let c3 = c3.clone();
         thread::spawn(move || {

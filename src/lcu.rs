@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
-use rand::{seq::SliceRandom, thread_rng};
+use rand::prelude::IndexedRandom;
 use regex::Regex;
 use reqwest::{blocking::Client, header};
 
@@ -253,7 +253,7 @@ impl GameClient {
             .collect();
 
         let Some((skin_id, skin_name)) =
-            champ_skin_ids.choose(&mut thread_rng())
+            champ_skin_ids.choose(&mut rand::rng())
         else {
             return Err("No skins available!".to_string());
         };
@@ -326,7 +326,7 @@ impl GameClient {
             }
         }
 
-        let Some(chroma) = current_chromas.choose(&mut thread_rng()) else {
+        let Some(chroma) = current_chromas.choose(&mut rand::rng()) else {
             return Err("No chroma available!".to_string());
         };
 
